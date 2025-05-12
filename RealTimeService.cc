@@ -137,6 +137,8 @@ void RealTimeService::run() {
 	startServerThread();
 	startNotificationThread();
 	setupTimer();
+
+	pthread_barrier_destroy(&notif_barrier);
 	handleUserInput();
 }
 
