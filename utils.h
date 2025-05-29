@@ -26,37 +26,37 @@ static const int SIG_SEND_TICK_MANUAL = SIGRTMIN + 2;
 static const int SIG_TIME_DATA_UPDATED = SIGRTMIN + 3;
 static const int SIG_DISCONNECT_TDBMS = SIGRTMIN + 9;
 
-class TDBManager {
+class TDBMS_Manager {
 public:
-	struct TDBInfo {
+	struct TDBMSInfo {
 		int pid;
 		pthread_t tid;
 		string nd;
 	};
 
-	TDBManager() {
+	TDBMS_Manager() {
 		pthread_mutex_init(&mutex_, NULL);
 	}
 
-	~TDBManager() {
+	~TDBMS_Manager() {
 		pthread_mutex_destroy(&mutex_);
 	}
 
-	bool registerTDB(string name, int pid, pthread_t tid, string nd) {
+	bool registerTDBMS(string name, int pid, pthread_t tid, string nd) {
 		lock();
 		if (isRegistered(name)) {
 			unlock();
 			return true;
 		}
 
-		TDBInfo info = { pid, tid, nd };
+		TDBMSInfo info = { pid, tid, nd };
 		db_[name] = info;
 		bool success = db_.count(name) > 0;
 		unlock();
 
 		if (success) {
-			cout << "- - - - Server: " << "TDBMS with name " << name
-					<< " REGISTRATION SUCCESS" << endl;
+			cout << "- - - - Server: " << "СУБТД с именем " << name
+					<< "УСПЕШНО ЗАРЕГИСТРИРОВАНА" << endl;
 		}
 		return success;
 	}
@@ -73,33 +73,29 @@ public:
 	}
 
 	void sendSignalToAll(int signal) {
-		cout << "SignalKill will send " << signal << endl;
 		lock();
-		for (map<string, TDBInfo>::iterator it = db_.begin(); it != db_.end(); it++) {
-			cout << "TDB_MANAGER-----> iterating... " << endl;
+		for (map<string, TDBMSInfo>::iterator it = db_.begin(); it != db_.end(); it++) {
 			if (SignalKill(0, it->second.pid, it->second.tid, signal, SI_USER,
 					0) < 0) {
 				if (errno == ESRCH) {
-					cout << "TDB_MANAGER-----> erase " << it->first << endl;
+					cout << "TDB_MANAGER-----> отключена СУБТД " << it->first << endl;
 					db_.erase(it);
 				} else {
-					cerr << "TDB_MANAGER-----> error SignalKill errno: "
+					cerr << "TDB_MANAGER-----> ошибка SignalKill, errno: "
 							<< strerror(errno) << endl;
 				}
 			} else {
-				cout << "TDB_MANAGER-----> success signalKill" << endl;
+				cout << "TDB_MANAGER-----> успешный SignalKill" << endl;
 			}
 		}
 
 		unlock();
-
-		cout << "TDB_MANAGER-----> TDB_buf iteration end.." << endl;
 	}
 
 	void showConnectedTDBMS() {
-		cout << "TDB_MANAGER-----> CONNECTED TDB MS:" << endl;
+		cout << "TDB_MANAGER-----> Зарегистрированые СУБТД:" << endl;
 		lock();
-		for (map<string, TDBInfo>::iterator it = db_.begin(); it != db_.end(); it++) {
+		for (map<string, TDBMSInfo>::iterator it = db_.begin(); it != db_.end(); it++) {
 			cout << distance(db_.begin(), it) << ". " << it->first << endl;
 		}
 		unlock();
@@ -108,24 +104,24 @@ public:
 
 	void disconnectTdbms(string name) {
 		lock();
-		map<string, TDBInfo>::iterator it = db_.find(name);
+		map<string, TDBMSInfo>::iterator it = db_.find(name);
 		if (it != db_.end()) {
 			if (SignalKill(0, it->second.pid, it->second.tid, SIG_DISCONNECT_TDBMS, SI_USER, 0) < 0) {
-				cerr << "TDB_MANAGER-----> Disconnecting TDBMS: SignalKill error: "<< strerror(errno) << endl;
+				cerr << "TDB_MANAGER-----> Ошибка отправки сигнала отключения СУБТД: SignalKill, errno: "<< strerror(errno) << endl;
 			}
 			db_.erase(it);
 			unlock();
-			cout << "TDB_MANAGER-----> Successfully removed: " << name << endl;
+			cout << "TDB_MANAGER-----> Успешно отключена СУБТД: " << name << endl;
 			return;
 		}
 		unlock();
-		cout << "TDB_MANAGER-----> Not found: " << name << " (can't remove)"
+		cout << "TDB_MANAGER-----> СУБТД: " << name << " не зарегистрирована (невозможно отключить)"
 				<< endl;
 		return;
 	}
 
 private:
-	map<string, TDBInfo> db_;
+	map<string, TDBMSInfo> db_;
 	mutable pthread_mutex_t mutex_;
 
 	void lock() const {
@@ -137,6 +133,6 @@ private:
 	}
 };
 
-extern TDBManager tdbManager;
+extern TDBMS_Manager tdbmsManager;
 
 #endif /* UTILS_H_ */

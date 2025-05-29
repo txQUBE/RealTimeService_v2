@@ -1,130 +1,149 @@
 // RegistrationServer.cc
-#include "RegistrationServer.h"
-#include "RealTimeService.h"
-#include "utils.h"
-#include <sys/neutrino.h>
+#include "RegistrationServer.h"  // Заголовочный файл сервера регистрации
+#include "RealTimeService.h"     // Заголовочный файл сервиса реального времени
+#include "utils.h"               // Вспомогательные утилиты
+#include <sys/neutrino.h>        // Библиотека QNX Neutrino для IPC
 
 using namespace std;
 
-namespace {
-const string REG_CHAN = "RTS_registration_channel";
-const int REG_TYPE = 101;
 
-//#pragma pack(push, 1)
+// Константы для сервера регистрации
+const string REG_CHAN = "RTS_registration_channel";  // Имя канала регистрации
+const int REG_TYPE = 101;                            // Тип сообщения регистрации
+
+// Структура сообщения регистрации
 struct RegistrationMessage {
-	_pulse hdr;
-	char name[255];
-	int pid;
-	pthread_t tid;
-	char nd[255];
+    _pulse hdr;         // Заголовок импульса QNX
+    char name[255];     // Имя для регистрации
+    int pid;            // Идентификатор процесса клиента
+    pthread_t tid;      // Идентификатор потока клиента
+    char nd[255];       // Дополнительные данные
 
-	long tick_nsec;
-	int tick_sec;
-	int time;
+    long tick_nsec;     // Наносекунды таймера
+    int tick_sec;       // Секунды таймера
+    int time;           // Время
 };
-//#pragma pack(pop)
 
+// Обработка ошибок приема сообщений
 void handleReceiveError(int error) {
-	if (error == ENOTCONN) {
-		cout << "- - - - Server: Socket is not connected" << endl;
-	} else {
-		perror("MsgReceive");
-	}
+    if (error == ENOTCONN) {
+        cout << "- - - - Server: Socket is not connected" << endl;
+    } else {
+        perror("MsgReceive");  // Вывод системной ошибки
+    }
 }
 
+// Обработка импульсных сообщений QNX
 void handlePulse(const _pulse& pulse) {
-	switch (pulse.code) {
-	case _PULSE_CODE_DISCONNECT:
-		ConnectDetach(pulse.scoid);
-		cout << "- - - - Server: _PULSE_CODE_DISCONNECT" << endl;
-		break;
-	case _PULSE_CODE_UNBLOCK:
-		cout << "- - - - Server: _PULSE_CODE_UNBLOCK" << endl;
-		break;
-	default:
-		cout << "- - - - Server: default pulse" << endl;
-		break;
-	}
+    switch (pulse.code) {
+    case _PULSE_CODE_DISCONNECT:  // Обработка отключения клиента
+        ConnectDetach(pulse.scoid);
+        cout << "- - - - Server: _PULSE_CODE_DISCONNECT" << endl;
+        break;
+    case _PULSE_CODE_UNBLOCK:     // Обработка разблокировки
+        cout << "- - - - Server: _PULSE_CODE_UNBLOCK" << endl;
+        break;
+    default:                      // Обработка других импульсов
+        cout << "- - - - Server: получен стандартный импульс" << endl;
+        break;
+    }
 }
 
+// Обработка системных сообщений QNX
 bool handleSystemMessage(int rcvid, const _pulse& hdr) {
-	if (hdr.type == _IO_CONNECT) {
-		MsgReply(rcvid, EOK, NULL, 0);
-		return true;
-	}
+    if (hdr.type == _IO_CONNECT) {  // Обработка подключения
+        MsgReply(rcvid, EOK, NULL, 0);
+        return true;
+    }
 
-	if (hdr.type > _IO_BASE && hdr.type <= _IO_MAX) {
-		cout << "_IO_BASE < hdr.type < _IO_MAX" << endl;
-		MsgError(rcvid, ENOSYS);
-		return true;
-	}
+    // Обработка других IO сообщений
+    if (hdr.type > _IO_BASE && hdr.type <= _IO_MAX) {
+        cout << "_IO_BASE < hdr.type < _IO_MAX" << endl;
+        MsgError(rcvid, ENOSYS);  // Отправка ошибки
+        return true;
+    }
 
-	return false;
+    return false;  // Не системное сообщение
 }
 
+// Вспомогательная функция для получения строки из char*
 string getStr(const char* str) {
-	return string(str);
+    return string(str);
 }
 
+// Обработка сообщения регистрации
 void handleRegistrationMessage(int rcvid, const RegistrationMessage& msg) {
-	if (msg.hdr.code == REG_TYPE) {
-		cout << "- - - - Server: call tdbManager.registerTDB for " << msg.name
-				<< endl;
+    if (msg.hdr.code == REG_TYPE) {  // Проверка типа сообщения
+        cout << "- - - - Server: Получен запрос на регистрацию:  " << msg.name
+                << endl;
 
-		cout << " TIMER DATA TO SEND : " << endl;
-		cout << "timer_.tick_sec  : " << timer_.tick_sec << endl;
-		cout << "timer_.tick_nsec : " << timer_.tick_nsec << endl;
-		cout << "timer_.Time      : " << timer_.time << endl;
+        // Вывод информации о таймере
+        cout << " Будут отправлены данные: " << endl;
+        cout << "timer_.tick_sec  : " << timer_.tick_sec << endl;
+        cout << "timer_.tick_nsec : " << timer_.tick_nsec << endl;
+        cout << "timer_.Time      : " << timer_.time << endl;
 
-		string name = getStr(msg.name);
-		string nd = getStr(msg.nd);
-		bool success = tdbManager.registerTDB(name, msg.pid, msg.tid, nd);
+        // Извлечение данных из сообщения
+        string name = getStr(msg.name);
+        string nd = getStr(msg.nd);
 
-		if (success) {
-			RegistrationMessage reply_msg = msg;
-			reply_msg.tick_nsec = timer_.tick_nsec;
-			reply_msg.tick_sec = timer_.tick_sec;
-			reply_msg.time = timer_.time;
+        // Регистрация в менеджере подключений TDBMS
+        bool success = tdbmsManager.registerTDBMS(name, msg.pid, msg.tid, nd);
 
-			MsgReply(rcvid, EOK, &reply_msg, sizeof(reply_msg));
-		} else {
-			MsgReply(rcvid, EINVAL, NULL, 0);
-		}
+        if (success) {
+            // Подготовка ответного сообщения с данными таймера
+            RegistrationMessage reply_msg = msg;
+            reply_msg.tick_nsec = timer_.tick_nsec;
+            reply_msg.tick_sec = timer_.tick_sec;
+            reply_msg.time = timer_.time;
 
-	}
+            // Отправка ответа клиенту
+            MsgReply(rcvid, EOK, &reply_msg, sizeof(reply_msg));
+        } else {
+            // Отправка ошибки при неудачной регистрации
+            MsgReply(rcvid, EINVAL, NULL, 0);
+        }
+    }
 }
-} // namespace
 
+// Основная функция сервера регистрации
 void* RegistrationServer::run(void*) {
-	cout << "- - - - Server: starting..." << endl;
-	name_attach_t* attach = name_attach(NULL, REG_CHAN.c_str(), 0);
+    cout << "- - - - Server: запуск..." << endl;
 
-	if (!attach) {
-		cerr << "- - - - Server: error name_attach(). errno:" << errno << endl;
-		exit(EXIT_FAILURE);
-	}
+    // Создание канала для приема сообщений
+    name_attach_t* attach = name_attach(NULL, REG_CHAN.c_str(), 0);
 
-	while (!shutDown) {
-		cout << "- - - - Server: wait for msg..." << endl;
-		RegistrationMessage msg;
-		int rcvid = MsgReceive(attach->chid, &msg, sizeof(msg), NULL);
+    if (!attach) {
+        cerr << "- - - - Server: error name_attach(). errno:" << errno << endl;
+        exit(EXIT_FAILURE);  // Выход при ошибке создания канала
+    }
 
-		if (rcvid == -1) {
-			handleReceiveError(errno);
-			continue;
-		}
+    // Основной цикл сервера
+    while (!shutDown) {
+        cout << "- - - - Server: ожидание запросов..." << endl;
+        RegistrationMessage msg;
 
-		if (rcvid == 0) {
-			handlePulse(msg.hdr);
-			continue;
-		}
+        // Ожидание сообщения
+        int rcvid = MsgReceive(attach->chid, &msg, sizeof(msg), NULL);
 
-		if (!handleSystemMessage(rcvid, msg.hdr)) {
-			handleRegistrationMessage(rcvid, msg);
-		}
-	}
+        if (rcvid == -1) {
+            handleReceiveError(errno);  // Обработка ошибки приема
+            continue;
+        }
 
-	cout << "- - - - Server: Server is shutting down" << endl;
-	name_detach(attach, 0);
-	return NULL;
+        if (rcvid == 0) {
+            handlePulse(msg.hdr);  // Обработка импульса
+            continue;
+        }
+
+        // Обработка сообщения (системного или регистрации)
+        if (!handleSystemMessage(rcvid, msg.hdr)) {
+            handleRegistrationMessage(rcvid, msg);
+        }
+    }
+
+    // Завершение работы сервера
+    cout << "- - - - Server: завершение работы" << endl;
+    name_detach(attach, 0);  // Освобождение ресурсов канала
+    return NULL;
 }
